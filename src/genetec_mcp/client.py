@@ -1,7 +1,7 @@
 """HTTP client for Genetec Security Center Web SDK API."""
 
 import httpx
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from .config import GENETEC_CONFIG, API_TIMEOUT
 
 
@@ -27,7 +27,7 @@ class GenetecAPIClient:
         """Make authenticated request to Genetec API.
         
         Args:
-            endpoint: API endpoint path (e.g., 'EntityManagement.svc/SearchEntities')
+            endpoint: API endpoint path (e.g., 'report/EntityConfiguration')
             method: HTTP method (default: POST)
             data: JSON data for POST/PUT requests
             params: Query parameters for GET requests
@@ -70,7 +70,7 @@ class GenetecAPIClient:
         limit: int = 20,
         offset: int = 0
     ) -> Dict[str, Any]:
-        """Search for entities of a specific type.
+        """Search for entities of a specific type using correct Genetec API.
         
         Args:
             entity_type: Type of entity to search for
@@ -188,6 +188,173 @@ class GenetecAPIClient:
         # Convert to format expected by server.py
         return {
             "Entity": result,
+            "Status": status
+        }
+    
+    async def query_door_events(
+        self,
+        door_guid: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """Query door activity/access events using Genetec report API.
+        
+        Args:
+            door_guid: Optional specific door GUID to filter by
+            start_time: Optional start time in ISO 8601 format
+            end_time: Optional end time in ISO 8601 format
+            limit: Maximum number of events to return
+            offset: Number of events to skip (for pagination)
+            
+        Returns:
+            Dict with 'Events' list and 'TotalCount'
+        """
+        # Build query string for door activity report
+        query_parts = []
+        
+        if door_guid:
+            query_parts.append(f"Doors@{door_guid}")
+        
+        # Add time range if specified
+        if start_time and end_time:
+            query_parts.append(f"TimeRange.SetTimeRange({start_time},{end_time})")
+        elif start_time:
+            # If only start time, query from start to now
+            from datetime import datetime
+            now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+            query_parts.append(f"TimeRange.SetTimeRange({start_time},{now})")
+        
+        # Add pagination
+        page = (offset // limit) + 1
+        query_parts.append(f"Page={page}")
+        query_parts.append(f"PageSize={limit}")
+        
+        query_string = ",".join(query_parts) if query_parts else f"Page=1,PageSize={limit}"
+        
+        response = await self.make_request(
+            f"report/DoorActivity?q={query_string}",
+            method="GET"
+        )
+        
+        # Process Genetec response
+        rsp = response.get("Rsp", {})
+        status = rsp.get("Status", "Fail")
+        result = rsp.get("Result", [])
+        
+        # Check for errors
+        if status == "Fail":
+            error_msg = result.get("Message", "Unknown error") if isinstance(result, dict) else "Query failed"
+            raise Exception(f"Genetec API Error: {error_msg}")
+        
+        # Convert to expected format
+        events = []
+        if isinstance(result, list):
+            for event_data in result:
+                events.append({
+                    "EventType": event_data.get("EventType", "Unknown"),
+                    "Timestamp": event_data.get("Timestamp"),
+                    "DoorGuid": event_data.get("DoorGuid"),
+                    "DoorName": event_data.get("DoorName", "Unknown"),
+                    "CardholderGuid": event_data.get("CardholderGuid"),
+                    "CardholderName": event_data.get("CardholderName", "Unknown"),
+                    "Reason": event_data.get("Reason")
+                })
+        
+        return {
+            "Events": events,
+            "TotalCount": len(events),
+            "Status": status
+        }
+    
+    async def create_visitor_entity(
+        self,
+        first_name: str,
+        last_name: str,
+        company: Optional[str] = None,
+        email: Optional[str] = None,
+        start_date: str = None,
+        end_date: str = None,
+        access_areas: List[str] = None,
+        credential_format: str = "card",
+        escort_required: bool = False
+    ) -> Dict[str, Any]:
+        """Create a visitor entity using Genetec entity API.
+        
+        Args:
+            first_name: Visitor's first name
+            last_name: Visitor's last name
+            company: Optional company name
+            email: Optional email address
+            start_date: Visit start date/time (ISO 8601)
+            end_date: Visit end date/time (ISO 8601)
+            access_areas: List of area GUIDs to grant access
+            credential_format: Credential type ('card', 'badge', 'pin')
+            escort_required: Whether escort is required
+            
+        Returns:
+            Dict with created visitor information
+        """
+        # Build properties for new visitor entity
+        props = []
+        props.append(f"FirstName={first_name}")
+        props.append(f"LastName={last_name}")
+        
+        if company:
+            props.append(f"Company={company}")
+        if email:
+            props.append(f"EmailAddress={email}")
+        
+        props.append(f"ActivationDate={start_date}")
+        props.append(f"ExpirationDate={end_date}")
+        
+        # Add access areas if provided
+        if access_areas:
+            areas_str = "@".join(access_areas)
+            props.append(f"AccessAreas={areas_str}")
+        
+        props.append(f"CredentialFormat={credential_format}")
+        props.append(f"EscortRequired={str(escort_required).lower()}")
+        
+        # Add Guid to get the GUID back
+        props.append("Guid")
+        
+        # Build entity creation query
+        props_string = ",".join(props)
+        query = f"entity=NewEntity(Visitor),{props_string}"
+        
+        response = await self.make_request(
+            f"entity?q={query}",
+            method="POST"
+        )
+        
+        # Process response
+        rsp = response.get("Rsp", {})
+        status = rsp.get("Status", "Fail")
+        result = rsp.get("Result", {})
+        
+        # Check for errors
+        if status == "Fail":
+            error_code = result.get("SdkErrorCode", "Unknown")
+            error_msg = result.get("Message", "Unknown error")
+            raise Exception(f"Genetec API Error ({error_code}): {error_msg}")
+        
+        # Return visitor information
+        return {
+            "Visitor": {
+                "Guid": result.get("Guid"),
+                "Name": f"{first_name} {last_name}",
+                "FirstName": first_name,
+                "LastName": last_name,
+                "Company": company,
+                "Email": email,
+                "StartDate": start_date,
+                "EndDate": end_date,
+                "AccessAreas": access_areas,
+                "CredentialFormat": credential_format,
+                "EscortRequired": escort_required
+            },
             "Status": status
         }
 
