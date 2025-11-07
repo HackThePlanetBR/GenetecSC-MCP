@@ -81,20 +81,24 @@ class GenetecAPIClient:
         Returns:
             Dict containing search results and pagination info
         """
-        data = {
-            "QueryContext": {
-                "EntityType": entity_type,
-                "PageInfo": {
-                    "Limit": limit,
-                    "Offset": offset
-                }
-            }
-        }
+        # Build query string for Genetec API
+        query_parts = [f"EntityTypes@{entity_type}"]
         
         if search_query:
-            data["QueryContext"]["SearchName"] = search_query
+            query_parts.append(f"Name={search_query}")
+            query_parts.append("NameSearchMode=Contains")
         
-        return await self.make_request("EntityManagement.svc/SearchEntities", data=data)
+        # Calculate page number from offset and limit
+        page = (offset // limit) + 1
+        query_parts.append(f"Page={page}")
+        query_parts.append(f"PageSize={limit}")
+        
+        query_string = ",".join(query_parts)
+        
+        return await self.make_request(
+            f"report/EntityConfiguration?q={query_string}",
+            method="GET"
+        )
     
     async def get_entity(self, entity_guid: str) -> Dict[str, Any]:
         """Get detailed information about a specific entity.
@@ -110,144 +114,6 @@ class GenetecAPIClient:
         }
         
         return await self.make_request("EntityManagement.svc/GetEntity", data=data)
-    
-    async def execute_access_control(
-        self,
-        command: str,
-        door_guid: str,
-        cardholder_guid: Optional[str] = None,
-        duration_seconds: Optional[int] = None,
-        reason: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Execute an access control command on a door.
-        
-        Args:
-            command: Command to execute ('GrantAccess', 'Lock', 'Unlock')
-            door_guid: GUID of the door
-            cardholder_guid: GUID of the cardholder (for GrantAccess)
-            duration_seconds: Duration in seconds (optional)
-            reason: Reason for the action (optional)
-            
-        Returns:
-            Dict containing command result
-        """
-        data = {
-            "Command": command,
-            "DoorGuid": door_guid
-        }
-        
-        if cardholder_guid:
-            data["CardholderGuid"] = cardholder_guid
-        
-        if duration_seconds is not None:
-            data["DurationSeconds"] = duration_seconds
-        
-        if reason:
-            data["Reason"] = reason
-        
-        return await self.make_request("AccessControlManagement.svc/ExecuteAccessControl", data=data)
-    
-    async def query_events(
-        self,
-        event_type: Optional[str] = None,
-        door_guid: Optional[str] = None,
-        cardholder_guid: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-        limit: int = 50,
-        offset: int = 0
-    ) -> Dict[str, Any]:
-        """Query access events with filters.
-        
-        Args:
-            event_type: Type of event to filter ('AccessGranted', 'AccessRefused', 'All')
-            door_guid: Filter by specific door GUID
-            cardholder_guid: Filter by specific cardholder GUID
-            start_time: Start time filter (ISO 8601 format)
-            end_time: End time filter (ISO 8601 format)
-            limit: Maximum number of events to return
-            offset: Number of events to skip (for pagination)
-            
-        Returns:
-            Dict containing events and pagination info
-        """
-        data = {
-            "QueryContext": {
-                "PageInfo": {
-                    "Limit": limit,
-                    "Offset": offset
-                }
-            }
-        }
-        
-        # Add filters
-        filters = {}
-        
-        if event_type and event_type != "All":
-            filters["EventType"] = event_type
-        
-        if door_guid:
-            filters["DoorGuid"] = door_guid
-        
-        if cardholder_guid:
-            filters["CardholderGuid"] = cardholder_guid
-        
-        if start_time:
-            filters["StartTime"] = start_time
-        
-        if end_time:
-            filters["EndTime"] = end_time
-        
-        if filters:
-            data["QueryContext"]["Filters"] = filters
-        
-        return await self.make_request("EventManagement.svc/QueryReports", data=data)
-    
-    async def create_visitor(
-        self,
-        first_name: str,
-        last_name: str,
-        company: Optional[str] = None,
-        email: Optional[str] = None,
-        start_date: str = "",
-        end_date: str = "",
-        access_areas: list = [],
-        credential_format: str = "card",
-        escort_required: bool = False
-    ) -> Dict[str, Any]:
-        """Create a temporary visitor with credentials.
-        
-        Args:
-            first_name: Visitor's first name
-            last_name: Visitor's last name
-            company: Visitor's company name (optional)
-            email: Visitor's email address (optional)
-            start_date: Visit start date/time (ISO 8601 format)
-            end_date: Visit end date/time (ISO 8601 format)
-            access_areas: List of area GUIDs to grant access
-            credential_format: Credential format ('card', 'badge', 'pin')
-            escort_required: Whether an escort is required
-            
-        Returns:
-            Dict containing visitor details
-        """
-        data = {
-            "FirstName": first_name,
-            "LastName": last_name,
-            "StartDate": start_date,
-            "EndDate": end_date,
-            "AccessAreas": access_areas,
-            "CredentialFormat": credential_format,
-            "EscortRequired": escort_required
-        }
-        
-        if company:
-            data["Company"] = company
-        
-        if email:
-            data["Email"] = email
-        
-        return await self.make_request("CardholderManagement.svc/CreateVisitor", data=data)
 
 
 def handle_api_error(e: Exception) -> str:
