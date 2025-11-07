@@ -79,7 +79,7 @@ class GenetecAPIClient:
             offset: Number of results to skip (for pagination)
             
         Returns:
-            Dict containing search results and pagination info
+            Dict with 'Entities' list and 'TotalCount' compatible with server.py
         """
         # Build query string for Genetec API
         query_parts = [f"EntityTypes@{entity_type}"]
@@ -95,10 +95,27 @@ class GenetecAPIClient:
         
         query_string = ",".join(query_parts)
         
-        return await self.make_request(
+        response = await self.make_request(
             f"report/EntityConfiguration?q={query_string}",
             method="GET"
         )
+        
+        # Process Genetec response format: {"Rsp": {"Status": "Ok/TooManyResults", "Result": [...]}}
+        rsp = response.get("Rsp", {})
+        status = rsp.get("Status", "Fail")
+        result = rsp.get("Result", [])
+        
+        # Convert to format expected by server.py
+        if isinstance(result, list):
+            entities = result
+        else:
+            entities = []
+        
+        return {
+            "Entities": entities,
+            "TotalCount": len(entities),  # Genetec doesn't return total count
+            "Status": status
+        }
     
     async def get_entity(self, entity_guid: str) -> Dict[str, Any]:
         """Get detailed information about a specific entity.
@@ -107,13 +124,29 @@ class GenetecAPIClient:
             entity_guid: GUID of the entity to retrieve
             
         Returns:
-            Dict containing entity details
+            Dict with 'Entity' containing the entity data, compatible with server.py
         """
-        data = {
-            "EntityGuid": entity_guid
-        }
+        response = await self.make_request(
+            f"entity?q=entity={entity_guid}",
+            method="GET"
+        )
         
-        return await self.make_request("EntityManagement.svc/GetEntity", data=data)
+        # Process Genetec response format: {"Rsp": {"Status": "Ok", "Result": {...}}}
+        rsp = response.get("Rsp", {})
+        status = rsp.get("Status", "Fail")
+        result = rsp.get("Result", {})
+        
+        # Check for errors
+        if status == "Fail":
+            error_code = result.get("SdkErrorCode", "Unknown")
+            error_msg = result.get("Message", "Unknown error")
+            raise Exception(f"Genetec API Error ({error_code}): {error_msg}")
+        
+        # Convert to format expected by server.py
+        return {
+            "Entity": result,
+            "Status": status
+        }
 
 
 def handle_api_error(e: Exception) -> str:
