@@ -107,13 +107,56 @@ class GenetecAPIClient:
         
         # Convert to format expected by server.py
         if isinstance(result, list):
-            entities = result
+            guid_list = result
         else:
-            entities = []
+            guid_list = []
+        
+        # Fetch names for all entities in a single request
+        entities = []
+        if guid_list:
+            # Build multi-entity query: entity={guid1},Name,EntityType,entity={guid2},Name,EntityType,...
+            entity_queries = []
+            for item in guid_list:
+                guid = item.get("Guid")
+                if guid:
+                    entity_queries.append(f"entity={guid},Name,EntityType,LogicalId")
+            
+            if entity_queries:
+                multi_query = ",".join(entity_queries)
+                details_response = await self.make_request(
+                    f"entity?q={multi_query}",
+                    method="GET"
+                )
+                
+                details_rsp = details_response.get("Rsp", {})
+                details_result = details_rsp.get("Result", [])
+                
+                # Result can be a single object or a list
+                if isinstance(details_result, dict):
+                    details_result = [details_result]
+                
+                # Match details with GUIDs
+                for i, item in enumerate(guid_list):
+                    guid = item.get("Guid")
+                    if i < len(details_result):
+                        detail = details_result[i]
+                        entities.append({
+                            "Guid": guid,
+                            "Name": detail.get("Name", "Unnamed"),
+                            "EntityType": detail.get("EntityType", entity_type),
+                            "LogicalId": detail.get("LogicalId", "N/A")
+                        })
+                    else:
+                        entities.append({
+                            "Guid": guid,
+                            "Name": "Unnamed",
+                            "EntityType": entity_type,
+                            "LogicalId": "N/A"
+                        })
         
         return {
             "Entities": entities,
-            "TotalCount": len(entities),  # Genetec doesn't return total count
+            "TotalCount": len(entities),
             "Status": status
         }
     
