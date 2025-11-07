@@ -441,10 +441,174 @@ async def genetec_list_cameras(params: ListCamerasInput) -> str:
 
 
 # =====================================================
-# GRUPO 2: Access Control Operations
+# GRUPO 2: Access Control Operations (Conservative Implementation)
 # =====================================================
 
-# Tools will be implemented in Phase 3
+@mcp.tool(
+    name="genetec_list_access_events",
+    annotations={
+        "title": "List Access Events",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True
+    }
+)
+async def genetec_list_access_events(params: ListAccessEventsInput) -> str:
+    """List access control events with optional filters.
+    
+    This tool retrieves access events (granted/refused) from the Genetec Security Center.
+    Use this to review access history, investigate security incidents, or monitor
+    door activity.
+    
+    Events can be filtered by:
+    - Door (specific door GUID)
+    - Cardholder (specific person)
+    - Event type (AccessGranted, AccessRefused, or All)
+    - Time range (start_time and end_time in ISO 8601 format)
+    
+    Args:
+        params (ListAccessEventsInput): Parameters containing:
+            - door_guid (Optional[str]): Filter by specific door
+            - cardholder_guid (Optional[str]): Filter by specific cardholder  
+            - event_type (EventType): 'AccessGranted', 'AccessRefused', or 'All'
+            - start_time (Optional[str]): Start time filter (ISO 8601)
+            - end_time (Optional[str]): End time filter (ISO 8601)
+            - limit (int): Maximum events to return (1-500, default: 50)
+            - offset (int): Pagination offset
+            - response_format (str): 'markdown' or 'json'
+    
+    Returns:
+        str: List of access events with details
+        
+    Examples:
+        - Recent events: (no filters returns last 50)
+        - Failed access: event_type='AccessRefused'
+        - Door activity: door_guid='xxx'
+        - Time range: start_time='2025-11-01T00:00:00Z', end_time='2025-11-07T23:59:59Z'
+    """
+    try:
+        # Query door activity events
+        response = await api_client.query_door_events(
+            door_guid=params.door_guid,
+            start_time=params.start_time,
+            end_time=params.end_time,
+            limit=params.limit,
+            offset=params.offset
+        )
+        
+        events = response.get("Events", [])
+        total = response.get("TotalCount", len(events))
+        
+        # Apply event type filter if not "All"
+        if params.event_type != EventType.ALL:
+            events = [
+                e for e in events
+                if e.get("EventType", "").lower() == params.event_type.value.lower()
+            ]
+            total = len(events)
+        
+        # Apply cardholder filter if specified
+        if params.cardholder_guid:
+            events = [
+                e for e in events
+                if e.get("CardholderGuid") == params.cardholder_guid
+            ]
+            total = len(events)
+        
+        # Format response
+        if params.response_format == ResponseFormat.JSON:
+            result = format_json(create_pagination_response(
+                items=events,
+                total=total,
+                offset=params.offset,
+                limit=params.limit
+            ))
+        else:
+            result = format_access_event_markdown(events, total, params.offset)
+        
+        return truncate_response(result, CHARACTER_LIMIT)
+        
+    except Exception as e:
+        return handle_api_error(e)
+
+
+@mcp.tool(
+    name="genetec_create_visitor",
+    annotations={
+        "title": "Create Visitor",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True
+    }
+)
+async def genetec_create_visitor(params: CreateVisitorInput) -> str:
+    """Create a temporary visitor with time-limited access credentials.
+    
+    This tool creates a new visitor entity in Genetec Security Center with:
+    - Personal information (name, company, email)
+    - Visit period (start and end dates)
+    - Access rights to specific areas
+    - Temporary credential (auto-deactivates after end date)
+    - Optional escort requirement
+    
+    Use this for:
+    - Contractor access management
+    - Guest credentials
+    - Temporary employees
+    - Vendor access
+    
+    Args:
+        params (CreateVisitorInput): Parameters containing:
+            - first_name (str): Visitor's first name
+            - last_name (str): Visitor's last name
+            - company (Optional[str]): Company name
+            - email (Optional[str]): Email address
+            - start_date (str): Visit start (ISO 8601)
+            - end_date (str): Visit end (ISO 8601)
+            - access_areas (List[str]): Area GUIDs to grant access
+            - credential_format (CredentialFormat): 'card', 'badge', or 'pin'
+            - escort_required (bool): Whether escort is required
+            - response_format (str): 'markdown' or 'json'
+    
+    Returns:
+        str: Created visitor details including GUID and credential info
+        
+    Examples:
+        - Create visitor: first_name='John', last_name='Smith', 
+          start_date='2025-11-08T09:00:00Z', end_date='2025-11-08T17:00:00Z',
+          access_areas=['area-guid-1', 'area-guid-2']
+    """
+    try:
+        # Create visitor entity
+        response = await api_client.create_visitor_entity(
+            first_name=params.first_name,
+            last_name=params.last_name,
+            company=params.company,
+            email=params.email,
+            start_date=params.start_date,
+            end_date=params.end_date,
+            access_areas=params.access_areas,
+            credential_format=params.credential_format.value,
+            escort_required=params.escort_required
+        )
+        
+        visitor = response.get("Visitor", {})
+        
+        if not visitor.get("Guid"):
+            return "Error: Failed to create visitor. No GUID returned."
+        
+        # Format response
+        if params.response_format == ResponseFormat.JSON:
+            result = format_json(visitor)
+        else:
+            result = format_visitor_created_markdown(visitor)
+        
+        return truncate_response(result, CHARACTER_LIMIT)
+        
+    except Exception as e:
+        return handle_api_error(e)
 
 
 # Entry point for running the server
