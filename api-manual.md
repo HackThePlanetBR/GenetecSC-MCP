@@ -1,0 +1,1 @@
+$(cat /mnt/project/api-manual.md)
