@@ -621,5 +621,292 @@ async def genetec_create_visitor(params: CreateVisitorInput) -> str:
 
 
 # Entry point for running the server
+
+
+# =====================================================
+# System Status and Health Monitoring Tools
+# =====================================================
+
+@mcp.tool(
+    name="genetec_list_entity_status_by_type",
+    annotations={
+        "title": "List Entity Status by Type",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True
+    }
+)
+async def genetec_list_entity_status_by_type(params: ListEntityStatusByTypeInput) -> str:
+    """List entities of a specific type with their operational status.
+    
+    This tool retrieves all entities of a specified type (Camera, Door, etc.) and
+    includes their operational status information (online, offline, maintenance).
+    Use this to monitor system health, identify offline devices, or find entities
+    requiring attention.
+    
+    Status information includes:
+    - IsOnline: Whether the entity is currently online
+    - RunningState: Current operational state
+    - IsInMaintenance: Whether entity is in maintenance mode
+    
+    Args:
+        params (ListEntityStatusByTypeInput): Parameters containing:
+            - entity_type (str): Type of entity ('Camera', 'Door', 'Area', etc.)
+            - status_filter (str): Filter by status ('All', 'Online', 'Offline', 'InMaintenance')
+            - limit (int): Maximum results per page (1-100, default: 20)
+            - offset (int): Pagination offset (default: 0)
+            - response_format (str): 'markdown' or 'json'
+    
+    Returns:
+        str: Formatted list of entities with status information and statistics
+    
+    Examples:
+        - List all cameras: entity_type='Camera', status_filter='All'
+        - Find offline doors: entity_type='Door', status_filter='Offline'
+        - Cameras in maintenance: entity_type='Camera', status_filter='InMaintenance'
+        - All online areas: entity_type='Area', status_filter='Online'
+    """
+    try:
+        # Step 1: Search for entities of the specified type
+        search_result = await api_client.search_entities(
+            entity_type=params.entity_type,
+            search_query=None,  # Get all entities of this type
+            limit=100,  # Get more entities to filter
+            offset=params.offset
+        )
+        
+        entities_basic = search_result.get("Entities", [])
+        
+        if not entities_basic:
+            return f"No {params.entity_type} entities found in the system."
+        
+        # Step 2: Get status information for these entities
+        entity_guids = [e.get("Guid") for e in entities_basic if e.get("Guid")]
+        
+        # Batch fetch status in groups to avoid overwhelming the API
+        batch_size = 20
+        all_entities_with_status = []
+        
+        for i in range(0, len(entity_guids), batch_size):
+            batch_guids = entity_guids[i:i + batch_size]
+            batch_entities = await api_client.get_entities_with_status(batch_guids)
+            all_entities_with_status.extend(batch_entities)
+        
+        # Step 3: Apply status filter (client-side)
+        filtered_entities = []
+        
+        for entity in all_entities_with_status:
+            is_online = entity.get("IsOnline")
+            is_in_maintenance = entity.get("IsInMaintenance", False)
+            
+            # Apply filter
+            if params.status_filter == EntityStatusFilter.ALL:
+                filtered_entities.append(entity)
+            elif params.status_filter == EntityStatusFilter.ONLINE:
+                if is_online is True and not is_in_maintenance:
+                    filtered_entities.append(entity)
+            elif params.status_filter == EntityStatusFilter.OFFLINE:
+                if is_online is False and not is_in_maintenance:
+                    filtered_entities.append(entity)
+            elif params.status_filter == EntityStatusFilter.IN_MAINTENANCE:
+                if is_in_maintenance:
+                    filtered_entities.append(entity)
+        
+        # Step 4: Apply pagination to filtered results
+        total_filtered = len(filtered_entities)
+        start_idx = 0  # We already applied offset in the search
+        end_idx = min(params.limit, total_filtered)
+        paginated_entities = filtered_entities[start_idx:end_idx]
+        
+        # Step 5: Format response
+        if params.response_format == ResponseFormat.JSON:
+            result = format_json({
+                "entity_type": params.entity_type,
+                "status_filter": params.status_filter.value,
+                "total": total_filtered,
+                "count": len(paginated_entities),
+                "offset": params.offset,
+                "limit": params.limit,
+                "has_more": total_filtered > params.offset + len(paginated_entities),
+                "entities": paginated_entities
+            })
+        else:
+            result = format_entity_status_markdown(
+                entities=paginated_entities,
+                entity_type=params.entity_type,
+                status_filter=params.status_filter.value,
+                total=total_filtered,
+                offset=params.offset,
+                limit=params.limit
+            )
+        
+        return truncate_response(result, CHARACTER_LIMIT)
+        
+    except Exception as e:
+        return handle_api_error(e)
+
+
+@mcp.tool(
+    name="genetec_system_health_dashboard",
+    annotations={
+        "title": "System Health Dashboard",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True
+    }
+)
+async def genetec_system_health_dashboard(params: SystemHealthDashboardInput) -> str:
+    """Get comprehensive system health dashboard across multiple entity types.
+    
+    This tool provides an aggregated view of system health across different entity
+    types (Cameras, Doors, Areas, etc.). It returns statistics on online/offline
+    status, entities in maintenance, and optionally lists entities requiring attention.
+    
+    Perfect for:
+    - System-wide health monitoring
+    - Identifying infrastructure problems
+    - Daily operational reports
+    - Preventive maintenance planning
+    
+    The dashboard includes:
+    - Overall health score and status
+    - Statistics per entity type (total, online, offline, maintenance)
+    - List of entities with problems (optional)
+    - Visual indicators for quick assessment
+    
+    Args:
+        params (SystemHealthDashboardInput): Parameters containing:
+            - entity_types (List[str]): Entity types to monitor (default: ['Camera', 'Door'])
+            - include_problem_details (bool): Include list of problematic entities (default: True)
+            - max_problems_per_type (int): Max problem entities to show per type (1-50, default: 10)
+            - response_format (str): 'markdown' or 'json'
+    
+    Returns:
+        str: Comprehensive health dashboard with statistics and problem entities
+    
+    Examples:
+        - Monitor cameras and doors: entity_types=['Camera', 'Door']
+        - Full system check: entity_types=['Camera', 'Door', 'Area', 'User']
+        - Quick overview: entity_types=['Camera'], include_problem_details=False
+    """
+    try:
+        from datetime import datetime
+        
+        # Initialize result structure
+        health_data = {
+            "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "entity_types": {},
+            "problems": {}
+        }
+        
+        # Process each entity type
+        for entity_type in params.entity_types:
+            try:
+                # Step 1: Get all entities of this type
+                search_result = await api_client.search_entities(
+                    entity_type=entity_type,
+                    search_query=None,
+                    limit=100,  # Get up to 100 entities per type
+                    offset=0
+                )
+                
+                entities_basic = search_result.get("Entities", [])
+                entity_guids = [e.get("Guid") for e in entities_basic if e.get("Guid")]
+                
+                if not entity_guids:
+                    # No entities of this type
+                    health_data["entity_types"][entity_type] = {
+                        "total": 0,
+                        "online": 0,
+                        "offline": 0,
+                        "in_maintenance": 0,
+                        "unknown": 0
+                    }
+                    health_data["problems"][entity_type] = []
+                    continue
+                
+                # Step 2: Get status for these entities (in batches)
+                batch_size = 20
+                all_entities_with_status = []
+                
+                for i in range(0, len(entity_guids), batch_size):
+                    batch_guids = entity_guids[i:i + batch_size]
+                    batch_entities = await api_client.get_entities_with_status(batch_guids)
+                    all_entities_with_status.extend(batch_entities)
+                
+                # Step 3: Calculate statistics
+                total = len(all_entities_with_status)
+                online = 0
+                offline = 0
+                in_maintenance = 0
+                unknown = 0
+                problem_entities = []
+                
+                for entity in all_entities_with_status:
+                    is_online = entity.get("IsOnline")
+                    is_in_maintenance = entity.get("IsInMaintenance", False)
+                    
+                    if is_in_maintenance:
+                        in_maintenance += 1
+                        if params.include_problem_details and len(problem_entities) < params.max_problems_per_type:
+                            problem_entities.append({
+                                "Name": entity.get("Name", "Unknown"),
+                                "Guid": entity.get("Guid"),
+                                "ProblemType": "InMaintenance"
+                            })
+                    elif is_online is True:
+                        online += 1
+                    elif is_online is False:
+                        offline += 1
+                        if params.include_problem_details and len(problem_entities) < params.max_problems_per_type:
+                            problem_entities.append({
+                                "Name": entity.get("Name", "Unknown"),
+                                "Guid": entity.get("Guid"),
+                                "ProblemType": "Offline"
+                            })
+                    else:
+                        unknown += 1
+                
+                # Store results
+                health_data["entity_types"][entity_type] = {
+                    "total": total,
+                    "online": online,
+                    "offline": offline,
+                    "in_maintenance": in_maintenance,
+                    "unknown": unknown
+                }
+                
+                health_data["problems"][entity_type] = problem_entities
+                
+            except Exception as type_error:
+                # Log error for this type but continue with others
+                print(f"Error processing {entity_type}: {str(type_error)}")
+                health_data["entity_types"][entity_type] = {
+                    "total": 0,
+                    "online": 0,
+                    "offline": 0,
+                    "in_maintenance": 0,
+                    "unknown": 0,
+                    "error": str(type_error)
+                }
+                health_data["problems"][entity_type] = []
+        
+        # Format response
+        if params.response_format == ResponseFormat.JSON:
+            result = format_json(health_data)
+        else:
+            result = format_system_health_dashboard_markdown(
+                health_data=health_data,
+                include_problem_details=params.include_problem_details
+            )
+        
+        return truncate_response(result, CHARACTER_LIMIT)
+        
+    except Exception as e:
+        return handle_api_error(e)
+
+
 if __name__ == "__main__":
     mcp.run()
