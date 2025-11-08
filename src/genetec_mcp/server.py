@@ -190,13 +190,17 @@ async def genetec_list_cardholders(params: ListCardholdersInput) -> str:
         entities = response.get("Entities", [])
         total = response.get("TotalCount", len(entities))
         
-        # Apply status filter if specified
+        # Apply status filter if specified (client-side filtering)
+        # Note: This reduces the result set, so we keep track of both totals
+        original_total = total
         if params.status_filter:
             entities = [
                 e for e in entities 
                 if e.get("Status", "").lower() == params.status_filter.lower()
             ]
-            total = len(entities)  # Update total after filtering
+            # Update total to reflect filtered count
+            # The original_total from API is lost, but this is the count user sees
+            total = len(entities)
         
         # Format response
         if params.response_format == ResponseFormat.JSON:
@@ -330,11 +334,13 @@ async def genetec_list_doors(params: ListDoorsInput) -> str:
         total = response.get("TotalCount", len(entities))
         
         # Apply area filter if specified (client-side filtering)
+        # Note: This reduces the result set after API call
         if params.area_filter:
             entities = [
                 e for e in entities 
                 if params.area_filter.lower() in e.get("Area", "").lower()
             ]
+            # Update total to reflect filtered count
             total = len(entities)
         
         # Format response
@@ -407,6 +413,7 @@ async def genetec_list_cameras(params: ListCamerasInput) -> str:
         total = response.get("TotalCount", len(entities))
         
         # Apply filters (client-side filtering)
+        # Note: Filters are applied after API call, reducing result set
         if params.area_filter:
             entities = [
                 e for e in entities 
@@ -419,7 +426,7 @@ async def genetec_list_cameras(params: ListCamerasInput) -> str:
                 if e.get("Status", "").lower() == params.status_filter.lower()
             ]
         
-        # Update total after filtering
+        # Update total after filtering to reflect actual count shown to user
         if params.area_filter or params.status_filter:
             total = len(entities)
         
@@ -500,7 +507,8 @@ async def genetec_list_access_events(params: ListAccessEventsInput) -> str:
         events = response.get("Events", [])
         total = response.get("TotalCount", len(events))
         
-        # Apply event type filter if not "All"
+        # Apply event type filter if not "All" (client-side filtering)
+        # Note: This reduces the result set after API call
         if params.event_type != EventType.ALL:
             events = [
                 e for e in events
@@ -508,7 +516,8 @@ async def genetec_list_access_events(params: ListAccessEventsInput) -> str:
             ]
             total = len(events)
         
-        # Apply cardholder filter if specified
+        # Apply cardholder filter if specified (client-side filtering)
+        # Note: Applied after event_type filter, further reducing results
         if params.cardholder_guid:
             events = [
                 e for e in events
