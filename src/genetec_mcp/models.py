@@ -17,13 +17,13 @@ class ResponseFormat(str, Enum):
 
 class SearchEntitiesInput(BaseModel):
     """Input model for searching entities."""
-    
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
         extra='forbid'
     )
-    
+
     entity_type: str = Field(
         ...,
         description=(
@@ -57,13 +57,13 @@ class SearchEntitiesInput(BaseModel):
 
 class GetEntityInput(BaseModel):
     """Input model for getting entity details."""
-    
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
         extra='forbid'
     )
-    
+
     entity_guid: str = Field(
         ...,
         description=(
@@ -82,13 +82,13 @@ class GetEntityInput(BaseModel):
 
 class ListCardholdersInput(BaseModel):
     """Input model for listing cardholders."""
-    
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
         extra='forbid'
     )
-    
+
     name_filter: Optional[str] = Field(
         default=None,
         description="Filter by cardholder name (partial match, case-insensitive)",
@@ -118,13 +118,13 @@ class ListCardholdersInput(BaseModel):
 
 class GetCardholderInput(BaseModel):
     """Input model for getting cardholder details."""
-    
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
         extra='forbid'
     )
-    
+
     cardholder_guid: str = Field(
         ...,
         description="GUID of the cardholder",
@@ -148,13 +148,13 @@ class GetCardholderInput(BaseModel):
 
 class ListDoorsInput(BaseModel):
     """Input model for listing doors."""
-    
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
         extra='forbid'
     )
-    
+
     name_filter: Optional[str] = Field(
         default=None,
         description="Filter by door name (partial match)",
@@ -184,13 +184,13 @@ class ListDoorsInput(BaseModel):
 
 class ListCamerasInput(BaseModel):
     """Input model for listing cameras."""
-    
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
         extra='forbid'
     )
-    
+
     name_filter: Optional[str] = Field(
         default=None,
         description="Filter by camera name (partial match)",
@@ -229,13 +229,13 @@ class ListCamerasInput(BaseModel):
 
 class GrantDoorAccessInput(BaseModel):
     """Input model for granting temporary door access."""
-    
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
         extra='forbid'
     )
-    
+
     door_guid: str = Field(
         ...,
         description="GUID of the door to grant access to",
@@ -275,13 +275,13 @@ class DoorAction(str, Enum):
 
 class LockUnlockDoorInput(BaseModel):
     """Input model for locking or unlocking a door."""
-    
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
         extra='forbid'
     )
-    
+
     door_guid: str = Field(
         ...,
         description="GUID of the door",
@@ -319,13 +319,13 @@ class EventType(str, Enum):
 
 class ListAccessEventsInput(BaseModel):
     """Input model for listing access events."""
-    
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
         extra='forbid'
     )
-    
+
     door_guid: Optional[str] = Field(
         default=None,
         description="Filter by specific door GUID",
@@ -376,13 +376,13 @@ class CredentialFormat(str, Enum):
 
 class CreateVisitorInput(BaseModel):
     """Input model for creating a visitor."""
-    
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
         extra='forbid'
     )
-    
+
     first_name: str = Field(
         ...,
         min_length=1,
@@ -433,20 +433,20 @@ class CreateVisitorInput(BaseModel):
         default=ResponseFormat.MARKDOWN,
         description="Output format"
     )
-    
+
     @field_validator('access_areas')
     @classmethod
     def validate_area_guids(cls, v: List[str]) -> List[str]:
         """Validate that all area GUIDs have correct format."""
         guid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
         import re
-        
+
         for guid in v:
             if not re.match(guid_pattern, guid):
                 raise ValueError(f"Invalid GUID format: {guid}")
-        
+
         return v
-    
+
     @field_validator('end_date')
     @classmethod
     def validate_end_after_start(cls, v: str, info) -> str:
@@ -455,8 +455,119 @@ class CreateVisitorInput(BaseModel):
             from datetime import datetime
             start = datetime.fromisoformat(info.data['start_date'].replace('Z', '+00:00'))
             end = datetime.fromisoformat(v.replace('Z', '+00:00'))
-            
+
             if end <= start:
                 raise ValueError("end_date must be after start_date")
-        
+
+        return v
+
+# =====================================================
+# System Status and Health Monitoring
+# =====================================================
+
+class EntityStatusFilter(str, Enum):
+    """Filter options for entity status."""
+    ALL = "All"
+    ONLINE = "Online"
+    OFFLINE = "Offline"
+    IN_MAINTENANCE = "InMaintenance"
+
+
+class ListEntityStatusByTypeInput(BaseModel):
+    """Input model for listing entity status by type.
+    
+    This model validates parameters for querying entities of a specific type
+    and retrieving their operational status (online, offline, maintenance).
+    """
+    
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True,
+        extra='forbid'
+    )
+    
+    entity_type: str = Field(
+        ...,
+        description=(
+            "Type of entity to query. Common types: 'Cardholder', 'Door', 'Camera', "
+            "'Area', 'User', 'Credential', 'AccessRule', 'Schedule', 'Alarm'"
+        ),
+        min_length=1,
+        max_length=50
+    )
+    status_filter: EntityStatusFilter = Field(
+        default=EntityStatusFilter.ALL,
+        description=(
+            "Filter entities by operational status: "
+            "'All' (all entities), "
+            "'Online' (online entities only), "
+            "'Offline' (offline entities only), "
+            "'InMaintenance' (entities in maintenance mode)"
+        )
+    )
+    limit: int = Field(
+        default=20,
+        description="Maximum number of results to return (1-100)",
+        ge=1,
+        le=100
+    )
+    offset: int = Field(
+        default=0,
+        description="Number of results to skip for pagination",
+        ge=0
+    )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' for human-readable or 'json' for machine-readable"
+    )
+
+
+class SystemHealthDashboardInput(BaseModel):
+    """Input model for system health dashboard.
+    
+    This model validates parameters for retrieving a comprehensive system health
+    overview across multiple entity types with aggregated statistics.
+    """
+    
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True,
+        extra='forbid'
+    )
+    
+    entity_types: List[str] = Field(
+        default=["Camera", "Door"],
+        description=(
+            "List of entity types to include in dashboard. "
+            "Common types: 'Camera', 'Door', 'Area', 'User', 'Credential'. "
+            "Maximum 10 types."
+        ),
+        min_items=1,
+        max_items=10
+    )
+    include_problem_details: bool = Field(
+        default=True,
+        description=(
+            "Include detailed list of entities with problems "
+            "(offline, in maintenance, etc.)"
+        )
+    )
+    max_problems_per_type: int = Field(
+        default=10,
+        description="Maximum number of problem entities to show per type (1-50)",
+        ge=1,
+        le=50
+    )
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' or 'json'"
+    )
+    
+    @field_validator('entity_types')
+    @classmethod
+    def validate_entity_types(cls, v: List[str]) -> List[str]:
+        """Validate that all entity types are non-empty strings."""
+        for entity_type in v:
+            if not entity_type or not entity_type.strip():
+                raise ValueError("Entity type cannot be empty")
         return v
