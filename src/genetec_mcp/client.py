@@ -215,40 +215,50 @@ class GenetecAPIClient:
             limit: int = 50,
             offset: int = 0
     ) -> Dict[str, Any]:
-        """Query door activity events from Genetec.
+        """Query door activity/access events using Genetec report API.
 
         Args:
-            door_guid: Optional GUID of specific door to filter by
-            start_time: Optional ISO 8601 start time
-            end_time: Optional ISO 8601 end time
-            limit: Maximum events to return
-            offset: Pagination offset
+            door_guid: Optional specific door GUID to filter by
+            start_time: Optional start time in ISO 8601 format
+            end_time: Optional end time in ISO 8601 format
+            limit: Maximum number of events to return
+            offset: Number of events to skip (for pagination)
 
         Returns:
             Dict with 'Events' list and 'TotalCount'
+
+        Note:
+            TotalCount represents events returned in current page.
+            Client-side filtering for event_type or cardholder_guid in server.py
+            may further reduce this count.
         """
-        # Build query string
+        # Build query string for door activity report
+        from datetime import datetime, timedelta
+        
         query_parts = []
 
+        # Doors parameter (optional - if not provided, queries all doors)
         if door_guid:
-            query_parts.append(f"DoorGuid={door_guid}")
+            query_parts.append(f"Doors@{door_guid}")
 
-        # Add time range if provided
+        # TimeRange is REQUIRED by the API
         if start_time and end_time:
-            # Both start and end time provided
             query_parts.append(f"TimeRange.SetTimeRange({start_time},{end_time})")
         elif start_time:
             # If only start time, query from start to now
-            from datetime import datetime
             now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
             query_parts.append(f"TimeRange.SetTimeRange({start_time},{now})")
+        else:
+            # If no time range provided, default to last 24 hours
+            now = datetime.utcnow()
+            yesterday = now - timedelta(days=1)
+            start = yesterday.strftime("%Y-%m-%dT%H:%M:%S")
+            end = now.strftime("%Y-%m-%dT%H:%M:%S")
+            query_parts.append(f"TimeRange.SetTimeRange({start},{end})")
 
-        # Add pagination
-        page = (offset // limit) + 1
-        query_parts.append(f"Page={page}")
-        query_parts.append(f"PageSize={limit}")
-
-        query_string = ",".join(query_parts) if query_parts else f"Page=1,PageSize={limit}"
+        # NOTE: DoorActivity endpoint does NOT support Page/PageSize parameters
+        # All results are returned in a single response
+        query_string = ",".join(query_parts)
 
         response = await self.make_request(
             f"report/DoorActivity?q={query_string}",
