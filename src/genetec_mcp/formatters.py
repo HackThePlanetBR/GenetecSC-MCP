@@ -68,7 +68,7 @@ def format_entity_markdown(entities: List[Dict[str, Any]], total: int, offset: i
     for i, entity in enumerate(entities, 1):
         name = entity.get("Name", "Unnamed")
         guid = entity.get("Guid", "N/A")
-        entity_type = entity.get("Type", "Unknown")
+        entity_type = entity.get("EntityType", "Unknown")
         logical_id = entity.get("LogicalId", "N/A")
         
         lines.append(f"### {i}. {name}")
@@ -95,7 +95,7 @@ def format_entity_details_markdown(entity: Dict[str, Any]) -> str:
         Markdown-formatted entity details
     """
     name = entity.get("Name", "Unnamed")
-    entity_type = entity.get("Type", "Unknown")
+    entity_type = entity.get("EntityType", "Unknown")
     guid = entity.get("Guid", "N/A")
     logical_id = entity.get("LogicalId", "N/A")
     
@@ -198,7 +198,7 @@ def format_door_action_markdown(
     Returns:
         Markdown-formatted action result
     """
-    status_emoji = "âœ…" if success else "âŒ"
+    status_emoji = "✅" if success else "❌"
     status_text = "successful" if success else "failed"
     
     lines = [
@@ -237,7 +237,7 @@ def format_visitor_created_markdown(visitor: Dict[str, Any]) -> str:
     end_date = format_timestamp(visitor.get("EndDate"))
     
     lines = [
-        "# Visitor Created âœ…",
+        "# Visitor Created ✅",
         "",
         f"**Name:** {name}",
         f"**Company:** {company}",
@@ -296,7 +296,7 @@ def truncate_response(response: str, limit: int = CHARACTER_LIMIT) -> str:
     truncation_msg = (
         "\n\n"
         "---\n"
-        "âš ï¸ **Response Truncated**\n\n"
+        "⚠️ **Response Truncated**\n\n"
         f"The response exceeded the {limit:,} character limit and was truncated.\n"
         "Use more specific filters, reduce the limit parameter, or increase the offset "
         "to paginate through results.\n"
