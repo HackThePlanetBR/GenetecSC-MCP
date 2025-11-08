@@ -329,15 +329,11 @@ class ListAccessEventsInput(BaseModel):
     door_guid: Optional[str] = Field(
         default=None,
         description="Filter by specific door GUID",
-        min_length=36,
-        max_length=36,
         pattern=r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
     )
     cardholder_guid: Optional[str] = Field(
         default=None,
         description="Filter by specific cardholder GUID",
-        min_length=36,
-        max_length=36,
         pattern=r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
     )
     event_type: EventType = Field(
@@ -422,8 +418,8 @@ class CreateVisitorInput(BaseModel):
     access_areas: List[str] = Field(
         ...,
         description="List of area GUIDs to grant access to",
-        min_length=1,
-        max_length=20
+        min_items=1,
+        max_items=20
     )
     credential_format: CredentialFormat = Field(
         default=CredentialFormat.CARD,
