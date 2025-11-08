@@ -184,8 +184,10 @@ class GenetecAPIClient:
         Returns:
             Dict with 'Entity' containing the entity data, compatible with server.py
         """
+        # Request specific properties from the API
+        # Note: Genetec API requires explicit property names in the query
         response = await self.make_request(
-            f"entity?q=entity={entity_guid},Name,EntityType,LogicalId,Description",
+            f"entity?q=entity={entity_guid},Name,EntityType,LogicalId,Description,Status",
             method="GET"
         )
 
@@ -213,31 +215,27 @@ class GenetecAPIClient:
             limit: int = 50,
             offset: int = 0
     ) -> Dict[str, Any]:
-        """Query door activity/access events using Genetec report API.
+        """Query door activity events from Genetec.
 
         Args:
-            door_guid: Optional specific door GUID to filter by
-            start_time: Optional start time in ISO 8601 format
-            end_time: Optional end time in ISO 8601 format
-            limit: Maximum number of events to return
-            offset: Number of events to skip (for pagination)
+            door_guid: Optional GUID of specific door to filter by
+            start_time: Optional ISO 8601 start time
+            end_time: Optional ISO 8601 end time
+            limit: Maximum events to return
+            offset: Pagination offset
 
         Returns:
             Dict with 'Events' list and 'TotalCount'
-
-        Note:
-            TotalCount represents events returned in current page.
-            Client-side filtering for event_type or cardholder_guid in server.py
-            may further reduce this count.
         """
-        # Build query string for door activity report
+        # Build query string
         query_parts = []
 
         if door_guid:
-            query_parts.append(f"Doors@{door_guid}")
+            query_parts.append(f"DoorGuid={door_guid}")
 
-        # Add time range if specified
+        # Add time range if provided
         if start_time and end_time:
+            # Both start and end time provided
             query_parts.append(f"TimeRange.SetTimeRange({start_time},{end_time})")
         elif start_time:
             # If only start time, query from start to now
