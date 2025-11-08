@@ -304,135 +304,80 @@ class GenetecAPIClient:
             entity_guids: List[str],
             status_properties: List[str] = None
     ) -> List[Dict[str, Any]]:
-        """Get status information for multiple entities using optimized batching.
+        """Get status information for multiple entities in a single request.
 
         Args:
             entity_guids: List of entity GUIDs to query
             status_properties: Optional list of properties to retrieve.
-                             Defaults to ['Name', 'EntityType', 'IsOnline', 'RunningState']
+                             Defaults to ['Name', 'EntityType', 'IsOnline', 'RunningState', 'IsInMaintenance']
 
         Returns:
             List of dicts with entity information and status
 
         Note:
-            Uses batch requests of 10 entities for optimal performance.
-            Falls back to individual requests if batch fails.
+            The Genetec API allows querying multiple entities in a single request
+            using the format: entity={guid1},Props,entity={guid2},Props,...
         """
         if not entity_guids:
             return []
 
-        # Default status properties - removed IsInMaintenance as it may not exist for all entity types
+        # Default status properties if not specified
         if status_properties is None:
-            status_properties = ['Name', 'EntityType', 'LogicalId', 'IsOnline', 'RunningState']
+            status_properties = ['Name', 'EntityType', 'LogicalId', 'IsOnline', 'RunningState', 'IsInMaintenance']
 
-        entities = []
+        # Build query for multiple entities
+        # Format: entity={guid1},Prop1,Prop2,entity={guid2},Prop1,Prop2
+        query_parts = []
         props_string = ",".join(status_properties)
-        batch_size = 10  # Smaller batches for reliability
 
-        # Process in batches
-        for i in range(0, len(entity_guids), batch_size):
-            batch_guids = entity_guids[i:i + batch_size]
-            
-            try:
-                # Try batch request first
-                if len(batch_guids) == 1:
-                    # Single entity - direct query
-                    query_string = f"entity={batch_guids[0]},{props_string}"
+        for guid in entity_guids:
+            query_parts.append(f"entity={guid},{props_string}")
+
+        query_string = ",".join(query_parts)
+
+        try:
+            response = await self.make_request(
+                f"entity?q={query_string}",
+                method="GET"
+            )
+
+            # Process Genetec response
+            rsp = response.get("Rsp", {})
+            status = rsp.get("Status", "Fail")
+            result = rsp.get("Result", {})
+
+            # Check for errors
+            if status == "Fail":
+                error_code = result.get("SdkErrorCode", "Unknown")
+                error_msg = result.get("Message", "Unknown error")
+                raise Exception(f"Genetec API Error ({error_code}): {error_msg}")
+
+            # Result can be a single dict (one entity) or the dict itself contains the entities
+            # When querying multiple entities, the result is a dict with the entities as values
+            entities = []
+
+            # Handle different response formats
+            if isinstance(result, dict):
+                # Multiple entities: result is a dict with entity data
+                # Single entity: result is directly the entity data
+                if "Guid" in result:
+                    # Single entity case
+                    entities.append(result)
                 else:
-                    # Multiple entities - batch query
-                    query_parts = [f"entity={guid},{props_string}" for guid in batch_guids]
-                    query_string = ",".join(query_parts)
+                    # Multiple entities - iterate through values
+                    for value in result.values():
+                        if isinstance(value, dict) and "Guid" in value:
+                            entities.append(value)
+            elif isinstance(result, list):
+                # List of entities
+                entities = result
 
-                response = await self.make_request(
-                    f"entity?q={query_string}",
-                    method="GET"
-                )
+            return entities
 
-                # Process Genetec response
-                rsp = response.get("Rsp", {})
-                status = rsp.get("Status", "Fail")
-                result = rsp.get("Result", {})
-
-                if status == "Fail":
-                    # Batch failed - try individual requests for this batch
-                    print(f"Batch request failed, trying individual requests for {len(batch_guids)} entities")
-                    for guid in batch_guids:
-                        try:
-                            single_response = await self.make_request(
-                                f"entity?q=entity={guid},{props_string}",
-                                method="GET"
-                            )
-                            single_rsp = single_response.get("Rsp", {})
-                            single_result = single_rsp.get("Result", {})
-                            
-                            if single_rsp.get("Status") == "Ok" and isinstance(single_result, dict) and "Guid" in single_result:
-                                entities.append(single_result)
-                        except Exception as e:
-                            print(f"Error fetching entity {guid}: {str(e)}")
-                            continue
-                    continue
-
-                # Parse successful batch response
-                if isinstance(result, dict):
-                    if "Guid" in result:
-                        # Single entity response
-                        entities.append(result)
-                    else:
-                        # Multiple entities - result keys are property names, need to reconstruct
-                        # For batch queries, Genetec returns a flat dict with all properties
-                        # We need to group by entity
-                        
-                        # Check if this is a batched response format
-                        if len(batch_guids) > 1:
-                            # Try to parse as individual entities
-                            for guid in batch_guids:
-                                # Each entity should have its properties in result
-                                entity_data = {"Guid": guid}
-                                for prop in status_properties:
-                                    if prop in result:
-                                        entity_data[prop] = result[prop]
-                                
-                                # Only add if we got some data
-                                if len(entity_data) > 1:
-                                    entities.append(entity_data)
-                        else:
-                            # Unexpected format - fallback to individual requests
-                            for guid in batch_guids:
-                                try:
-                                    single_response = await self.make_request(
-                                        f"entity?q=entity={guid},{props_string}",
-                                        method="GET"
-                                    )
-                                    single_rsp = single_response.get("Rsp", {})
-                                    single_result = single_rsp.get("Result", {})
-                                    
-                                    if single_rsp.get("Status") == "Ok" and isinstance(single_result, dict) and "Guid" in single_result:
-                                        entities.append(single_result)
-                                except Exception:
-                                    continue
-                                    
-                elif isinstance(result, list):
-                    # List of entities
-                    entities.extend([e for e in result if isinstance(e, dict) and "Guid" in e])
-
-            except Exception as e:
-                # Batch completely failed - try individual requests
-                print(f"Exception in batch request: {str(e)}")
-                for guid in batch_guids:
-                    try:
-                        single_response = await self.make_request(
-                            f"entity?q=entity={guid},{props_string}",
-                            method="GET"
-                        )
-                        single_rsp = single_response.get("Rsp", {})
-                        single_result = single_rsp.get("Result", {})
-                        
-                        if single_rsp.get("Status") == "Ok" and isinstance(single_result, dict) and "Guid" in single_result:
-                            entities.append(single_result)
-                    except Exception:
-                        continue
-
-        return entities
+        except Exception as e:
+            # Log error but return empty list to avoid breaking dashboard
+            print(f"Error fetching entity status: {str(e)}")
+            return []
     async def create_visitor_entity(
             self,
             first_name: str,
