@@ -187,7 +187,7 @@ class GenetecAPIClient:
         # Request specific properties from the API
         # Note: Genetec API requires explicit property names in the query
         response = await self.make_request(
-            f"entity?q=entity={entity_guid},Name,EntityType,LogicalId,Description,Status",
+            f"entity?q=entity={entity_guid},Name,EntityType,LogicalId,Description,IsOnline,RunningState",
             method="GET"
         )
 
