@@ -80,6 +80,11 @@ class GenetecAPIClient:
             
         Returns:
             Dict with 'Entities' list and 'TotalCount' compatible with server.py
+            
+        Note:
+            TotalCount represents the number of entities returned in the current page,
+            as the Genetec API doesn't provide a total count across all pages.
+            Client-side filtering in server.py tools may further reduce this count.
         """
         # Build query string for Genetec API
         query_parts = [f"EntityTypes@{entity_type}"]
@@ -105,11 +110,20 @@ class GenetecAPIClient:
         status = rsp.get("Status", "Fail")
         result = rsp.get("Result", [])
         
+        # Check for errors
+        if status == "Fail":
+            error_code = result.get("SdkErrorCode", "Unknown") if isinstance(result, dict) else "Unknown"
+            error_msg = result.get("Message", "Unknown error") if isinstance(result, dict) else "Query failed"
+            raise Exception(f"Genetec API Error ({error_code}): {error_msg}")
+        
         # Convert to format expected by server.py
         if isinstance(result, list):
             guid_list = result
         else:
             guid_list = []
+        
+        # Store count before fetching details (this is our baseline)
+        total_guids = len(guid_list)
         
         # Fetch names for all entities in a single request
         entities = []
@@ -147,6 +161,7 @@ class GenetecAPIClient:
                             "LogicalId": detail.get("LogicalId", "N/A")
                         })
                     else:
+                        # Fallback if details fetch failed for this entity
                         entities.append({
                             "Guid": guid,
                             "Name": "Unnamed",
@@ -154,10 +169,10 @@ class GenetecAPIClient:
                             "LogicalId": "N/A"
                         })
         
+        # Return total_guids (baseline count before any client-side filtering)
         return {
             "Entities": entities,
-            "TotalCount": len(entities),
-            "Status": status
+            "TotalCount": total_guids,
         }
     
     async def get_entity(self, entity_guid: str) -> Dict[str, Any]:
@@ -188,7 +203,6 @@ class GenetecAPIClient:
         # Convert to format expected by server.py
         return {
             "Entity": result,
-            "Status": status
         }
     
     async def query_door_events(
@@ -210,6 +224,11 @@ class GenetecAPIClient:
             
         Returns:
             Dict with 'Events' list and 'TotalCount'
+            
+        Note:
+            TotalCount represents events returned in current page.
+            Client-side filtering for event_type or cardholder_guid in server.py
+            may further reduce this count.
         """
         # Build query string for door activity report
         query_parts = []
@@ -243,10 +262,14 @@ class GenetecAPIClient:
         status = rsp.get("Status", "Fail")
         result = rsp.get("Result", [])
         
-        # Check for errors
+        # Check for errors with consistent error handling
         if status == "Fail":
-            error_msg = result.get("Message", "Unknown error") if isinstance(result, dict) else "Query failed"
-            raise Exception(f"Genetec API Error: {error_msg}")
+            if isinstance(result, dict):
+                error_code = result.get("SdkErrorCode", "Unknown")
+                error_msg = result.get("Message", "Unknown error")
+                raise Exception(f"Genetec API Error ({error_code}): {error_msg}")
+            else:
+                raise Exception("Genetec API Error (Unknown): Query failed")
         
         # Convert to expected format
         events = []
@@ -265,7 +288,6 @@ class GenetecAPIClient:
         return {
             "Events": events,
             "TotalCount": len(events),
-            "Status": status
         }
     
     async def create_visitor_entity(
@@ -355,7 +377,6 @@ class GenetecAPIClient:
                 "CredentialFormat": credential_format,
                 "EscortRequired": escort_required
             },
-            "Status": status
         }
 
 
