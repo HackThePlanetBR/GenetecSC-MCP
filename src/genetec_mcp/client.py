@@ -234,7 +234,7 @@ class GenetecAPIClient:
         """
         # Build query string for door activity report
         from datetime import datetime, timedelta
-        
+
         query_parts = []
 
         # Doors parameter (optional - if not provided, queries all doors)
@@ -298,6 +298,86 @@ class GenetecAPIClient:
             "TotalCount": len(events),
         }
 
+
+    async def get_entities_with_status(
+            self,
+            entity_guids: List[str],
+            status_properties: List[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get status information for multiple entities in a single request.
+
+        Args:
+            entity_guids: List of entity GUIDs to query
+            status_properties: Optional list of properties to retrieve.
+                             Defaults to ['Name', 'EntityType', 'IsOnline', 'RunningState', 'IsInMaintenance']
+
+        Returns:
+            List of dicts with entity information and status
+
+        Note:
+            The Genetec API allows querying multiple entities in a single request
+            using the format: entity={guid1},Props,entity={guid2},Props,...
+        """
+        if not entity_guids:
+            return []
+
+        # Default status properties if not specified
+        if status_properties is None:
+            status_properties = ['Name', 'EntityType', 'LogicalId', 'IsOnline', 'RunningState', 'IsInMaintenance']
+
+        # Build query for multiple entities
+        # Format: entity={guid1},Prop1,Prop2,entity={guid2},Prop1,Prop2
+        query_parts = []
+        props_string = ",".join(status_properties)
+
+        for guid in entity_guids:
+            query_parts.append(f"entity={guid},{props_string}")
+
+        query_string = ",".join(query_parts)
+
+        try:
+            response = await self.make_request(
+                f"entity?q={query_string}",
+                method="GET"
+            )
+
+            # Process Genetec response
+            rsp = response.get("Rsp", {})
+            status = rsp.get("Status", "Fail")
+            result = rsp.get("Result", {})
+
+            # Check for errors
+            if status == "Fail":
+                error_code = result.get("SdkErrorCode", "Unknown")
+                error_msg = result.get("Message", "Unknown error")
+                raise Exception(f"Genetec API Error ({error_code}): {error_msg}")
+
+            # Result can be a single dict (one entity) or the dict itself contains the entities
+            # When querying multiple entities, the result is a dict with the entities as values
+            entities = []
+
+            # Handle different response formats
+            if isinstance(result, dict):
+                # Multiple entities: result is a dict with entity data
+                # Single entity: result is directly the entity data
+                if "Guid" in result:
+                    # Single entity case
+                    entities.append(result)
+                else:
+                    # Multiple entities - iterate through values
+                    for value in result.values():
+                        if isinstance(value, dict) and "Guid" in value:
+                            entities.append(value)
+            elif isinstance(result, list):
+                # List of entities
+                entities = result
+
+            return entities
+
+        except Exception as e:
+            # Log error but return empty list to avoid breaking dashboard
+            print(f"Error fetching entity status: {str(e)}")
+            return []
     async def create_visitor_entity(
             self,
             first_name: str,
@@ -328,11 +408,11 @@ class GenetecAPIClient:
         """
         # Build properties for new visitor entity
         props = []
-        
+
         # Set entity name (important for display)
         full_name = f"{first_name} {last_name}"
         props.append(f"Name={full_name}")
-        
+
         props.append(f"FirstName={first_name}")
         props.append(f"LastName={last_name}")
 
