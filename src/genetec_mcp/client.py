@@ -336,16 +336,12 @@ class GenetecAPIClient:
         if email:
             props.append(f"EmailAddress={email}")
 
-        props.append(f"ActivationDate={start_date}")
-        props.append(f"ExpirationDate={end_date}")
+        # Use Arrival/Departure (not ActivationDate/ExpirationDate)
+        props.append(f"Arrival={start_date}")
+        props.append(f"Departure={end_date}")
 
-        # Add access areas if provided
-        if access_areas:
-            areas_str = "@".join(access_areas)
-            props.append(f"AccessAreas={areas_str}")
-
-        props.append(f"CredentialFormat={credential_format}")
-        props.append(f"EscortRequired={str(escort_required).lower()}")
+        # Note: AccessAreas, CredentialFormat, EscortRequired may not be supported
+        # in the basic entity creation. These may need to be set separately.
 
         # Add Guid to get the GUID back
         props.append("Guid")
