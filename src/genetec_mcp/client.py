@@ -187,7 +187,7 @@ class GenetecAPIClient:
         # Request specific properties from the API
         # Note: Genetec API requires explicit property names in the query
         response = await self.make_request(
-            f"entity?q=entity={entity_guid},Name,EntityType,LogicalId,Description,IsOnline,RunningState",
+            f"entity?q=entity={entity_guid},Guid,Name,EntityType,LogicalId,Description,IsOnline,RunningState",
             method="GET"
         )
 
@@ -298,86 +298,45 @@ class GenetecAPIClient:
             "TotalCount": len(events),
         }
 
-
     async def get_entities_with_status(
             self,
             entity_guids: List[str],
             status_properties: List[str] = None
     ) -> List[Dict[str, Any]]:
-        """Get status information for multiple entities in a single request.
+        """Get status information for multiple entities.
 
         Args:
             entity_guids: List of entity GUIDs to query
-            status_properties: Optional list of properties to retrieve.
-                             Defaults to ['Name', 'EntityType', 'IsOnline', 'RunningState', 'IsInMaintenance']
+            status_properties: Not used - kept for compatibility
 
         Returns:
             List of dicts with entity information and status
 
         Note:
-            The Genetec API allows querying multiple entities in a single request
-            using the format: entity={guid1},Props,entity={guid2},Props,...
+            Fetches each entity individually using get_entity() method.
+            Simple and reliable approach.
         """
         if not entity_guids:
             return []
 
-        # Default status properties if not specified
-        if status_properties is None:
-            status_properties = ['Name', 'EntityType', 'LogicalId', 'IsOnline', 'RunningState', 'IsInMaintenance']
+        entities = []
 
-        # Build query for multiple entities
-        # Format: entity={guid1},Prop1,Prop2,entity={guid2},Prop1,Prop2
-        query_parts = []
-        props_string = ",".join(status_properties)
-
+        # Fetch each entity individually using existing get_entity method
         for guid in entity_guids:
-            query_parts.append(f"entity={guid},{props_string}")
+            try:
+                result = await self.get_entity(entity_guid=guid)
+                entity = result.get("Entity", {})
 
-        query_string = ",".join(query_parts)
+                if entity and entity.get("Guid"):
+                    entities.append(entity)
 
-        try:
-            response = await self.make_request(
-                f"entity?q={query_string}",
-                method="GET"
-            )
+            except Exception as e:
+                # Skip entities that fail - don't break the whole process
+                print(f"Skipping entity {guid}: {str(e)}")
+                continue
 
-            # Process Genetec response
-            rsp = response.get("Rsp", {})
-            status = rsp.get("Status", "Fail")
-            result = rsp.get("Result", {})
+        return entities
 
-            # Check for errors
-            if status == "Fail":
-                error_code = result.get("SdkErrorCode", "Unknown")
-                error_msg = result.get("Message", "Unknown error")
-                raise Exception(f"Genetec API Error ({error_code}): {error_msg}")
-
-            # Result can be a single dict (one entity) or the dict itself contains the entities
-            # When querying multiple entities, the result is a dict with the entities as values
-            entities = []
-
-            # Handle different response formats
-            if isinstance(result, dict):
-                # Multiple entities: result is a dict with entity data
-                # Single entity: result is directly the entity data
-                if "Guid" in result:
-                    # Single entity case
-                    entities.append(result)
-                else:
-                    # Multiple entities - iterate through values
-                    for value in result.values():
-                        if isinstance(value, dict) and "Guid" in value:
-                            entities.append(value)
-            elif isinstance(result, list):
-                # List of entities
-                entities = result
-
-            return entities
-
-        except Exception as e:
-            # Log error but return empty list to avoid breaking dashboard
-            print(f"Error fetching entity status: {str(e)}")
-            return []
     async def create_visitor_entity(
             self,
             first_name: str,
