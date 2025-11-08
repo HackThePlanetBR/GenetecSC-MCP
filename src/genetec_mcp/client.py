@@ -328,6 +328,11 @@ class GenetecAPIClient:
         """
         # Build properties for new visitor entity
         props = []
+        
+        # Set entity name (important for display)
+        full_name = f"{first_name} {last_name}"
+        props.append(f"Name={full_name}")
+        
         props.append(f"FirstName={first_name}")
         props.append(f"LastName={last_name}")
 
