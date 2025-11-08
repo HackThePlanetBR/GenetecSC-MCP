@@ -104,10 +104,32 @@ def format_entity_details_markdown(entity: Dict[str, Any]) -> str:
         "",
         f"**Name:** {name}",
         f"**Type:** {entity_type}",
-        f"**GUID:** {guid}",
+        f"**GUID:** `{guid}`",
         f"**Logical ID:** {logical_id}",
         ""
     ]
+
+    # Add status properties if available
+    status_props = []
+    if "IsOnline" in entity:
+        is_online = entity.get("IsOnline")
+        status_icon = "✅" if is_online else "❌"
+        status_text = "Online" if is_online else "Offline"
+        status_props.append(f"- **Status:** {status_icon} {status_text}")
+
+    if "RunningState" in entity:
+        status_props.append(f"- **Running State:** {entity.get('RunningState')}")
+
+    if "IsLocked" in entity:
+        is_locked = entity.get("IsLocked")
+        lock_icon = "🔒" if is_locked else "🔓"
+        lock_text = "Locked" if is_locked else "Unlocked"
+        status_props.append(f"- **Lock State:** {lock_icon} {lock_text}")
+
+    if status_props:
+        lines.append("## Status")
+        lines.extend(status_props)
+        lines.append("")
 
     # Add properties section if available
     if "Properties" in entity:
@@ -344,6 +366,7 @@ def create_pagination_response(
         "items": items
     }
 
+
 # =====================================================
 # System Status and Health Formatters
 # =====================================================
@@ -357,7 +380,7 @@ def format_entity_status_markdown(
         limit: int
 ) -> str:
     """Format entity status list as Markdown.
-    
+
     Args:
         entities: List of entity dictionaries with status information
         entity_type: Type of entities being displayed
@@ -365,7 +388,7 @@ def format_entity_status_markdown(
         total: Total number of entities (after filtering)
         offset: Current pagination offset
         limit: Items per page
-        
+
     Returns:
         Formatted Markdown string
     """
@@ -374,25 +397,25 @@ def format_entity_status_markdown(
         f"# {entity_type} Status Report",
         ""
     ]
-    
+
     # Filter info
     if status_filter != "All":
         lines.append(f"**Filter:** {status_filter}")
-    
+
     # Summary statistics
     lines.extend([
         f"**Total Results:** {total}",
         f"**Showing:** {len(entities)} entities (offset: {offset}, limit: {limit})",
         ""
     ])
-    
+
     # Count by status
     if entities:
         online_count = sum(1 for e in entities if e.get("IsOnline") is True)
         offline_count = sum(1 for e in entities if e.get("IsOnline") is False)
         maintenance_count = sum(1 for e in entities if e.get("IsInMaintenance") is True)
         unknown_count = len(entities) - (online_count + offline_count)
-        
+
         lines.extend([
             "## Status Summary",
             "",
@@ -402,7 +425,7 @@ def format_entity_status_markdown(
             f"- ❓ **Unknown:** {unknown_count}",
             ""
         ])
-    
+
     # Entity list
     if not entities:
         lines.extend([
@@ -415,7 +438,7 @@ def format_entity_status_markdown(
             "## Entities",
             ""
         ])
-        
+
         for entity in entities:
             name = entity.get("Name", "Unknown")
             guid = entity.get("Guid", "N/A")
@@ -423,7 +446,7 @@ def format_entity_status_markdown(
             is_online = entity.get("IsOnline")
             running_state = entity.get("RunningState", "Unknown")
             is_in_maintenance = entity.get("IsInMaintenance", False)
-            
+
             # Status icon
             if is_in_maintenance:
                 status_icon = "🔧"
@@ -437,7 +460,7 @@ def format_entity_status_markdown(
             else:
                 status_icon = "❓"
                 status_text = "Unknown"
-            
+
             lines.extend([
                 f"### {status_icon} {name}",
                 "",
@@ -447,11 +470,11 @@ def format_entity_status_markdown(
                 f"- **Running State:** {running_state}",
                 ""
             ])
-    
+
     # Pagination info
     count = len(entities)
     has_more = total > offset + count
-    
+
     if has_more:
         next_offset = offset + count
         lines.extend([
@@ -461,7 +484,7 @@ def format_entity_status_markdown(
             f"➡️ Use `offset={next_offset}` to get the next page",
             ""
         ])
-    
+
     return "\n".join(lines)
 
 
@@ -470,11 +493,11 @@ def format_system_health_dashboard_markdown(
         include_problem_details: bool
 ) -> str:
     """Format system health dashboard as Markdown.
-    
+
     Args:
         health_data: Dictionary with health data per entity type
         include_problem_details: Whether to include detailed problem list
-        
+
     Returns:
         Formatted Markdown dashboard
     """
@@ -484,23 +507,23 @@ def format_system_health_dashboard_markdown(
         f"**Generated:** {health_data.get('timestamp', 'Unknown')}",
         ""
     ]
-    
+
     # Overall summary
     total_entities = 0
     total_online = 0
     total_offline = 0
     total_maintenance = 0
     total_unknown = 0
-    
+
     entity_types_data = health_data.get("entity_types", {})
-    
+
     for type_data in entity_types_data.values():
         total_entities += type_data.get("total", 0)
         total_online += type_data.get("online", 0)
         total_offline += type_data.get("offline", 0)
         total_maintenance += type_data.get("in_maintenance", 0)
         total_unknown += type_data.get("unknown", 0)
-    
+
     # Calculate health percentage
     if total_entities > 0:
         health_percentage = (total_online / total_entities) * 100
@@ -520,7 +543,7 @@ def format_system_health_dashboard_markdown(
         health_icon = "⚪"
         health_status = "No Data"
         health_percentage = 0
-    
+
     lines.extend([
         f"## {health_icon} Overall Status: {health_status}",
         "",
@@ -535,27 +558,27 @@ def format_system_health_dashboard_markdown(
         f"- ❓ **Unknown Status:** {total_unknown}",
         ""
     ])
-    
+
     # Per entity type breakdown
     lines.extend([
         "## 📊 Status by Entity Type",
         ""
     ])
-    
+
     for entity_type, type_data in entity_types_data.items():
         total = type_data.get("total", 0)
         online = type_data.get("online", 0)
         offline = type_data.get("offline", 0)
         maintenance = type_data.get("in_maintenance", 0)
         unknown = type_data.get("unknown", 0)
-        
+
         if total > 0:
             online_pct = (online / total) * 100
             type_health = "🟢" if online_pct >= 95 else "🟡" if online_pct >= 80 else "🟠" if online_pct >= 60 else "🔴"
         else:
             online_pct = 0
             type_health = "⚪"
-        
+
         lines.extend([
             f"### {type_health} {entity_type}",
             "",
@@ -566,34 +589,34 @@ def format_system_health_dashboard_markdown(
             f"- **Unknown:** {unknown}",
             ""
         ])
-    
+
     # Problem entities details
     if include_problem_details:
         problems = health_data.get("problems", {})
-        
+
         if problems:
             lines.extend([
                 "## ⚠️ Entities Requiring Attention",
                 ""
             ])
-            
+
             for entity_type, problem_entities in problems.items():
                 if problem_entities:
                     lines.append(f"### {entity_type}")
                     lines.append("")
-                    
+
                     for entity in problem_entities:
                         name = entity.get("Name", "Unknown")
                         guid = entity.get("Guid", "N/A")
                         status = entity.get("ProblemType", "Unknown")
-                        
+
                         if status == "Offline":
                             icon = "❌"
                         elif status == "InMaintenance":
                             icon = "🔧"
                         else:
                             icon = "❓"
-                        
+
                         lines.extend([
                             f"- {icon} **{name}**",
                             f"  - GUID: `{guid}`",
@@ -607,5 +630,5 @@ def format_system_health_dashboard_markdown(
                 "*All monitored entities are operating normally.*",
                 ""
             ])
-    
+
     return "\n".join(lines)
